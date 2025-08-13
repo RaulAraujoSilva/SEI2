@@ -1,0 +1,99 @@
+openapi: 3.0.3
+info:
+  title: SEI Manager API
+  version: 0.1.0
+servers:
+  - url: https://localhost:3000
+paths:
+  /api/health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: ok
+  /api/processes:
+    get:
+      summary: Listar processos
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+        - in: query
+          name: start
+          schema: { type: string, format: date }
+        - in: query
+          name: end
+          schema: { type: string, format: date }
+      responses:
+        '200': { description: OK }
+    post:
+      summary: Criar processo
+      responses:
+        '201': { description: Created }
+  /api/processes/{id}:
+    get:
+      summary: Detalhar processo
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+    put:
+      summary: Atualizar processo
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+    delete:
+      summary: Deletar processo
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+  /api/report:
+    get:
+      summary: Relatório unificado por período
+      parameters:
+        - in: query
+          name: start
+          required: true
+          schema: { type: string, format: date }
+        - in: query
+          name: end
+          required: true
+          schema: { type: string, format: date }
+      responses:
+        '200': { description: OK }
+  /api/import/capture:
+    post:
+      summary: Capturar processo por URL
+      responses:
+        '200': { description: OK }
+  /api/import/batch:
+    post:
+      summary: Captura em lote por URLs
+      responses:
+        '200': { description: OK }
+  /api/processes/update-now:
+    post:
+      summary: Atualização sob demanda
+      responses:
+        '202': { description: Accepted }
+  /api/schedule:
+    post:
+      summary: Salvar agendamento de atualização
+      responses:
+        '200': { description: OK }
+  /api/cron/update:
+    get:
+      summary: Endpoint para Vercel Cron iniciar atualização
+      responses:
+        '200': { description: OK }
