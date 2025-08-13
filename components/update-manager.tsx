@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Calendar, Clock, Loader2, RefreshCw, Save, Timer } from 'lucide-react'
+import { Calendar, Clock, Loader2, RefreshCw, Save, Timer, CheckCircle, XCircle } from 'lucide-react'
 import {
   Select,
   SelectContent,
@@ -26,6 +26,14 @@ type ScheduleState = {
   nextRun?: string
 }
 
+type UpdateStats = {
+  totalProcesses: number
+  successCount: number
+  failureCount: number
+  novosProtocolos: number
+  novosAndamentos: number
+}
+
 const STORAGE_KEY = 'sei:update-schedule:v1'
 
 export function UpdateManager() {
@@ -38,10 +46,34 @@ export function UpdateManager() {
   })
   const [isSaving, setIsSaving] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
+  const [updateStats, setUpdateStats] = useState<UpdateStats | null>(null)
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'info' | null; message: string }>({ type: null, message: '' })
 
-  // load from localStorage
+  // Load schedule from backend on mount
   useEffect(() => {
+    loadScheduleFromBackend()
+  }, [])
+
+  const loadScheduleFromBackend = async () => {
+    try {
+      // First try to get from backend
+      const response = await fetch('/api/schedule/status')
+      if (response.ok) {
+        const data = await response.json()
+        if (data.active) {
+          setSchedule({
+            mode: data.mode,
+            type: data.type || 'daily',
+            dailyTime: data.dailyTime || '09:00',
+            intervalHours: data.intervalHours || 24,
+            nextRun: data.nextRun
+          })
+          return
+        }
+      }
+    } catch {}
+    
+    // Fallback to localStorage
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) {
@@ -49,7 +81,7 @@ export function UpdateManager() {
         setSchedule(parsed)
       }
     } catch {}
-  }, [])
+  }
 
   const computeNextRun = (s: ScheduleState): string | undefined => {
     const now = new Date()
@@ -59,35 +91,84 @@ export function UpdateManager() {
       const next = new Date(now)
       next.setHours(hh || 9, mm || 0, 0, 0)
       if (next <= now) next.setDate(next.getDate() + 1)
-      return next.toLocaleString()
+      return next.toLocaleString('pt-BR')
     } else {
       const next = new Date(now.getTime() + s.intervalHours * 60 * 60 * 1000)
-      return next.toLocaleString()
+      return next.toLocaleString('pt-BR')
     }
   }
 
   const nextRun = useMemo(() => computeNextRun(schedule), [schedule])
 
-  const saveSchedule = () => {
+  const saveSchedule = async () => {
     setIsSaving(true)
-    const next = computeNextRun(schedule)
-    const toSave = { ...schedule, nextRun: next }
-    setTimeout(() => {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave))
-      setSchedule(toSave)
+    setStatus({ type: null, message: '' })
+    
+    try {
+      const response = await fetch('/api/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: schedule.mode,
+          type: schedule.mode === 'scheduled' ? schedule.type : undefined,
+          dailyTime: schedule.mode === 'scheduled' && schedule.type === 'daily' ? schedule.dailyTime : undefined,
+          intervalHours: schedule.mode === 'scheduled' && schedule.type === 'interval' ? schedule.intervalHours : undefined,
+        })
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        const next = data.nextRun ? new Date(data.nextRun).toLocaleString('pt-BR') : undefined
+        const toSave = { ...schedule, nextRun: next }
+        
+        // Save to localStorage as backup
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave))
+        setSchedule(toSave)
+        setStatus({ type: 'success', message: 'Agendamento salvo com sucesso.' })
+      } else {
+        throw new Error('Falha ao salvar agendamento')
+      }
+    } catch (error) {
+      setStatus({ type: 'error', message: 'Erro ao salvar agendamento. Tente novamente.' })
+    } finally {
       setIsSaving(false)
-      setStatus({ type: 'success', message: 'Agendamento salvo com sucesso.' })
-    }, 800)
+    }
   }
 
-  const updateNow = () => {
+  const updateNow = async () => {
     setIsUpdating(true)
     setStatus({ type: 'info', message: 'Atualizando processos... isso pode levar alguns minutos.' })
-    // Simula atualização
-    setTimeout(() => {
+    setUpdateStats(null)
+    
+    try {
+      const response = await fetch('/api/processes/update-now', {
+        method: 'POST'
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        
+        // Set update statistics
+        setUpdateStats({
+          totalProcesses: data.processes || 0,
+          successCount: data.processes || 0,
+          failureCount: 0,
+          novosProtocolos: data.novosProtocolos || 0,
+          novosAndamentos: data.novosAndamentos || 0
+        })
+        
+        setStatus({ 
+          type: 'success', 
+          message: `Atualização concluída! ${data.processes} processos atualizados.`
+        })
+      } else {
+        throw new Error('Falha na atualização')
+      }
+    } catch (error) {
+      setStatus({ type: 'error', message: 'Erro ao atualizar processos. Tente novamente.' })
+    } finally {
       setIsUpdating(false)
-      setStatus({ type: 'success', message: 'Todos os processos foram atualizados.' })
-    }, 2000)
+    }
   }
 
   return (
@@ -219,6 +300,31 @@ export function UpdateManager() {
             Salvar agendamento
           </Button>
         </div>
+
+        {/* Statistics Display */}
+        {updateStats && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 p-3 bg-pastel-green-50 rounded-lg border border-pastel-green-200">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-pastel-green-700">{updateStats.totalProcesses}</div>
+              <div className="text-xs text-gray-600">Processos</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-green-600 flex items-center justify-center gap-1">
+                <CheckCircle className="h-5 w-5" />
+                {updateStats.successCount}
+              </div>
+              <div className="text-xs text-gray-600">Sucesso</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-pastel-blue-600">{updateStats.novosProtocolos}</div>
+              <div className="text-xs text-gray-600">Novos Protocolos</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-pastel-purple-600">{updateStats.novosAndamentos}</div>
+              <div className="text-xs text-gray-600">Novos Andamentos</div>
+            </div>
+          </div>
+        )}
 
         {status.type && (
           <Alert
