@@ -82,39 +82,74 @@ export function parseAutuacao($: cheerio.CheerioAPI): Autuacao {
   const bodyText = $('body').text()
   const acessoRestrito = /Processo ou Documento de Acesso Restrito/i.test(bodyText)
 
-  const getFieldFromCells = (label: string): string => {
-    const cell = $('td, th').filter((_, el) => normalizeText($(el).text()) === label).first()
-    if (cell.length) {
-      const next = normalizeText(cell.next('td').text())
-      if (next) return next
-      const alt = normalizeText(cell.parent().find('td').eq(1).text())
-      if (alt) return alt
+  const getFieldFromCells = (labels: string[]): string => {
+    for (const label of labels) {
+      // Busca exata
+      let cell = $('td, th').filter((_, el) => normalizeText($(el).text()) === label).first()
+      
+      // Se não encontrar, busca parcial
+      if (!cell.length) {
+        cell = $('td, th').filter((_, el) => normalizeText($(el).text()).includes(label.replace(':', ''))).first()
+      }
+      
+      if (cell.length) {
+        const next = normalizeText(cell.next('td').text())
+        if (next) return next
+        const alt = normalizeText(cell.parent().find('td').eq(1).text())
+        if (alt) return alt
+        // Tenta buscar na mesma linha
+        const sameRow = normalizeText(cell.parent().find('td').last().text())
+        if (sameRow && sameRow !== normalizeText(cell.text())) return sameRow
+      }
     }
     return ''
   }
 
-  const numero = getFieldFromCells('Processo:')
-  const tipo = getFieldFromCells('Tipo:')
-  const dataGeracao = parseDateBR(getFieldFromCells('Data de Geração:'))
-  const interessado = getFieldFromCells('Interessados:')
+  const numero = getFieldFromCells(['Processo:', 'Número:', 'Número do Processo:'])
+  const tipo = getFieldFromCells(['Tipo:', 'Tipo do Processo:', 'Espécie:'])
+  const dataGeracao = parseDateBR(getFieldFromCells(['Data de Geração:', 'Data de Autuação:', 'Data:']))
+  const interessado = getFieldFromCells(['Interessados:', 'Interessado:', 'Requerente:', 'Solicitante:'])
 
   return { numero, tipo, dataGeracao, interessado, acessoRestrito }
 }
 
 export function parseProtocolos($: cheerio.CheerioAPI): Protocolo[] {
   const protocolos: Protocolo[] = []
-  const table = $('h3:contains("Lista de Protocolos")').first().nextAll('table').first()
+  
+  // Primeiro tenta encontrar por seção h3
+  let table = $('h3:contains("Lista de Protocolos"), h3:contains("Protocolos"), h3:contains("Lista de Documentos"), h3:contains("Documentos")').first().nextAll('table').first()
+  
+  // Se não encontrar, procura por tabela com cabeçalhos específicos
+  if (!table.length) {
+    table = $('table').filter((_, el) => {
+      const headers = $(el).find('tr').first().find('th, td').map((_, cell) => 
+        normalizeText($(cell).text())
+      ).get().join(' ')
+      return headers.includes('Processo') && headers.includes('Tipo') && headers.includes('Data')
+    }).first()
+  }
+  
   if (!table.length) return protocolos
-  table.find('tr').each((_, tr) => {
+  
+  // Encontrar o índice correto das colunas baseado nos cabeçalhos
+  const headerRow = table.find('tr').first()
+  const headers = headerRow.find('th, td').map((_, cell) => normalizeText($(cell).text())).get()
+  
+  const numeroIndex = headers.findIndex(h => h.includes('Processo') || h.includes('Documento'))
+  const tipoIndex = headers.findIndex(h => h.includes('Tipo'))
+  const dataIndex = headers.findIndex(h => h.includes('Data') && !h.includes('Inclusão'))
+  const dataInclusaoIndex = headers.findIndex(h => h.includes('Inclusão'))
+  const unidadeIndex = headers.findIndex(h => h.includes('Unidade'))
+  
+  table.find('tr').slice(1).each((_, tr) => { // Pula o cabeçalho
     const tds = $(tr).find('td')
     if (tds.length >= 5) {
-      // Usa as últimas 5 colunas para tolerar coluna extra de seleção no início
-      const start = tds.length - 5
-      const numero = normalizeText($(tds[start + 0]).text())
-      const tipo = normalizeText($(tds[start + 1]).text())
-      const data = parseDateBR(normalizeText($(tds[start + 2]).text()))
-      const dataInclusao = parseDateBR(normalizeText($(tds[start + 3]).text()))
-      const unidade = normalizeText($(tds[start + 4]).text())
+      const numero = numeroIndex >= 0 ? normalizeText($(tds[numeroIndex]).text()) : ''
+      const tipo = tipoIndex >= 0 ? normalizeText($(tds[tipoIndex]).text()) : ''
+      const data = dataIndex >= 0 ? parseDateBR(normalizeText($(tds[dataIndex]).text())) : null
+      const dataInclusao = dataInclusaoIndex >= 0 ? parseDateBR(normalizeText($(tds[dataInclusaoIndex]).text())) : null
+      const unidade = unidadeIndex >= 0 ? normalizeText($(tds[unidadeIndex]).text()) : ''
+      
       if (numero && tipo) {
         protocolos.push({ numero, tipo, data, dataInclusao, unidade })
       }
@@ -125,14 +160,37 @@ export function parseProtocolos($: cheerio.CheerioAPI): Protocolo[] {
 
 export function parseAndamentos($: cheerio.CheerioAPI): Andamento[] {
   const andamentos: Andamento[] = []
-  const table = $('h3:contains("Lista de Andamentos")').first().nextAll('table').first()
+  
+  // Primeiro tenta encontrar por seção h3
+  let table = $('h3:contains("Lista de Andamentos"), h3:contains("Andamentos"), h3:contains("Histórico"), h3:contains("Tramitação")').first().nextAll('table').first()
+  
+  // Se não encontrar, procura por tabela com cabeçalhos específicos
+  if (!table.length) {
+    table = $('table').filter((_, el) => {
+      const headers = $(el).find('tr').first().find('th, td').map((_, cell) => 
+        normalizeText($(cell).text())
+      ).get().join(' ')
+      return headers.includes('Data') && headers.includes('Unidade') && headers.includes('Descrição')
+    }).first()
+  }
+  
   if (!table.length) return andamentos
-  table.find('tr').each((_, tr) => {
+  
+  // Encontrar o índice correto das colunas baseado nos cabeçalhos
+  const headerRow = table.find('tr').first()
+  const headers = headerRow.find('th, td').map((_, cell) => normalizeText($(cell).text())).get()
+  
+  const dataHoraIndex = headers.findIndex(h => h.includes('Data'))
+  const unidadeIndex = headers.findIndex(h => h.includes('Unidade'))
+  const descricaoIndex = headers.findIndex(h => h.includes('Descrição') || h.includes('Descricao'))
+  
+  table.find('tr').slice(1).each((_, tr) => { // Pula o cabeçalho
     const tds = $(tr).find('td')
     if (tds.length >= 3) {
-      const dataHora = parseDateTimeBR(normalizeText($(tds[0]).text()))
-      const unidade = normalizeText($(tds[1]).text())
-      const descricao = normalizeText($(tds[2]).text())
+      const dataHora = dataHoraIndex >= 0 ? parseDateTimeBR(normalizeText($(tds[dataHoraIndex]).text())) : null
+      const unidade = unidadeIndex >= 0 ? normalizeText($(tds[unidadeIndex]).text()) : ''
+      const descricao = descricaoIndex >= 0 ? normalizeText($(tds[descricaoIndex]).text()) : ''
+      
       if (unidade || descricao) {
         andamentos.push({ dataHora, unidade, descricao })
       }

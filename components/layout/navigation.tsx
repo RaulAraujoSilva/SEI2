@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { FileText, Upload, List, Settings, Bell, User, Menu, X, Home, FileSpreadsheet } from 'lucide-react'
+import { UserMenu } from '@/components/user-menu'
 
 const navigationItems = [
   {
@@ -99,36 +100,8 @@ export function Navigation({ children }: NavigationProps) {
           
           {/* User Section */}
           <div className="mt-6 pt-6 border-t border-pastel-purple-200">
-            <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-pastel-lavender-50 border border-pastel-lavender-200">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-pastel-lavender-200">
-                <User className="h-4 w-4 text-pastel-lavender-600" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-800 truncate">
-                  João Silva
-                </p>
-                <p className="text-xs text-gray-600 truncate">
-                  Administrador
-                </p>
-              </div>
-            </div>
-            
-            <div className="mt-3 flex gap-2">
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="flex-1 border-pastel-purple-300 text-pastel-purple-700 hover:bg-pastel-purple-50"
-              >
-                <Settings className="h-4 w-4 mr-1" />
-                Config
-              </Button>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="border-pastel-peach-300 text-pastel-peach-700 hover:bg-pastel-peach-50"
-              >
-                <Bell className="h-4 w-4" />
-              </Button>
+            <div className="flex items-center justify-center px-3">
+              <UserMenu />
             </div>
           </div>
         </nav>
